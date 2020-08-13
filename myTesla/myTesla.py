@@ -38,6 +38,8 @@ class connect:
 
     def select_vehicle(self, vehicle_index=None, vin=None, vehicle_id=None):
         vehicles = self.vehicles()
+        if vehicles == None:
+            return
         if (vehicle_index is not None):
             self.vehicle_id = vehicles["response"][vehicle_index]["id"]
         elif (vin != None):
@@ -83,19 +85,24 @@ class connect:
                 "password": password,
             }
         tesla_api_response = requests.post(self.base_url + "/oauth/token", data=oauth_param).json() # Note: This is 'sunny weather programming' assuming nothing goes ever wrong between your coder brain, the infrastructure in between and the APIs coder brain!!
+        if 'error' in tesla_api_response and 'invalid_grant' in tesla_api_response['error']: # This means the current grant (refresh token) is exired. Nothing we can do here
+            return None
         self.tesla_backend_token_response = tesla_api_response
         self.headers = {"Authorization": "{} {}".format(tesla_api_response['token_type'], tesla_api_response['access_token'])}
         return tesla_api_response
 
     def requests_get(self, *args, **kwargs):
-        if self.tesla_backend_token_response and datetime.fromtimestamp(self.tesla_backend_token_response['created_at']+self.tesla_backend_token_response['expires_in']-5*86400) < datetime.utcnow():
-            self.get_access_token()
-        return(requests.get(*args, **kwargs))
+        if self.tesla_backend_token_response and datetime.fromtimestamp(self.tesla_backend_token_response['created_at']+self.tesla_backend_token_response['expires_in']-5*86400) > datetime.utcnow():
+            token = self.get_access_token()
+            if token:
+                return(requests.get(*args, **kwargs))
+        return None
 
     def requests_post(self, *args, **kwargs):
-        if self.tesla_backend_token_response and datetime.fromtimestamp(self.tesla_backend_token_response['created_at']+self.tesla_backend_token_response['expires_in']-5*86400) < datetime.utcnow():
-            self.get_access_token()
-        return(requests.post(*args, **kwargs))
+        if self.tesla_backend_token_response and datetime.fromtimestamp(self.tesla_backend_token_response['created_at']+self.tesla_backend_token_response['expires_in']-5*86400) > datetime.utcnow():
+            if self.get_access_token():
+                return(requests.post(*args, **kwargs))
+        return None
 
     # Vehicles
     def vehicles(self):
@@ -103,7 +110,10 @@ class connect:
 
         :return: Retrieve a list of your owned vehicles
         '''
-        return self.requests_get(self.api_url + "/vehicles", headers=self.headers).json()
+        ret = self.requests_get(self.api_url + "/vehicles", headers=self.headers)
+        if ret:
+            return ret.json()
+        return None
 
     # state
     def get_data_request(self, state_name):
